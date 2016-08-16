@@ -1,0 +1,125 @@
+CREATE TABLE UserAccount
+(
+	AcctName varchar(13) primary key,
+	Password varchar(30),
+	Email varchar(30),
+);
+CREATE TABLE GameSession
+(
+	SessionID int primary key,
+	LoginTime time,
+	LogoutTime time,
+	AcctName varchar(13) foreign key references UserAccount(AcctName)
+);
+CREATE TABLE Game
+(
+	GameID int IDENTITY(1,1) primary key,
+	Score int,
+	StarRating int,
+	AcctName varchar(13) Foreign key References UserAccount(AcctName)
+);
+CREATE TABLE Plays
+(
+	AcctName varchar(13) Foreign Key References UserAccount(AcctName),
+	GameID int Foreign Key References Game(GameID)
+);
+CREATE TABLE GlobalHighScores
+(
+	GHScore int,
+	AcctName varchar(13) FOREIGN KEY References UserAccount(AcctName),
+);
+//We need to auto set two scores before allowing any players to access the GlobalHighScore table
+INSERT INTO GlobalHighScores Values(80,'SePhiRoTH');
+INSERT INTO GlobalHighScores Values(56,'Puma Punku');
+
+CREATE TABLE PlayerHighScores
+(
+	PHScore int,
+	AcctName varchar(13) FOREIGN KEY References UserAccount(AcctName)
+);
+// Calculate and Insert Star Rating per game
+CREATE TRIGGER StarRating
+	ON Game
+	AFTER INSERT
+	DECLARE @NumOfStars int,
+		@GID int
+		@gscore
+	SET @GID = (select GameID from inserted);
+	SET @gscore = (Select Score from inserted);
+	if @gscore >= 75
+		@NumOfStars = 5;
+	elsif @gscore >= 60
+		@NumOfStars = 4;
+	elsif @gscore >= 45
+		@NumOfStars = 3;
+	elsif @gscore >= 30
+		@NumOfStars = 2;
+	else
+		@NumOfStars = 1;
+	begin 
+		EXECUTE StarHelper @GID,@NumOfStars
+	end;
+// Check High Scores table and update if a game score is greater than a player and/or global high score
+CREATE TRIGGER CheckScores
+	On Game
+	AFTER INSERT
+	AS
+	DECLARE @GScore int,
+		@PScore int,
+		@HScore int,
+		@Acct varchar(13);
+	SET @Acct = (SELECT AcctName FROM inserted);
+	SET @GScore = (Select Score FROM inserted);
+	SET @PScore = (Select PHScore From PlayerHighScores Where AcctName = @Acct);
+    	SET @HScore = (Select MIN(GHScore) From GlobalHighScores);
+	begin
+		if @gscore > @HScore
+			EXECUTE ReplaceGScore @GScore, @Acct;
+		if @gscore > @Pscore
+			EXECUTE ReplacePScore @GScore, @Acct;
+	end;
+//Automatically put a highscore of 0 into PlayerHighScores upon account insertion to UserAccount
+CREATE TRIGGER InsertToScores
+	On UserAccount
+	AFTER INSERT
+	AS
+	DECLARE @Acct varchar(13),
+		@Score int;
+	SET @Score = 0;
+	SET @Acct = (SELECT AcctName From inserted);
+	begin
+		Insert Into PlayerHighScores Values(@Score,@Acct);
+	end;
+// Helper Procedure for updating Star ratings in StarRating Trigger
+CREATE PROCEDURE StarHelper
+	@GID int,
+	@SR int
+AS
+Begin
+	UPDATE Game
+	SET StarRating = @SR
+	WHERE GameID = @GID
+end;
+//Helper Procedure for CheckScores Trigger, finds and replaces minimum player high score
+CREATE Or Replace PROCEDURE ReplacePScore
+	@GScore int,
+	@Acct varchar(13)
+AS
+Begin
+	UPDATE PlayerHighScores
+	SET PHScore = @GScore
+	WHERE AcctName = @Acct
+end;
+//Helper Procedure for CheckScores Trigger, finds and replaces minimum player high score
+CREATE PROCEDURE ReplaceGScore
+	@GScore int,
+	@Acct varchar(13)
+AS
+Begin
+	UPDATE GlobalHighScores	
+	SET AcctName = @Acct 
+	Where Score = (Select MIN(GHScore) FROM GlobalHighScores);
+	UPDATE GlobalHighScores
+	SET GHScore = @GScore
+	Where Score = (Select MIN(GHScore) FROM GlobalHighScores);
+end;
